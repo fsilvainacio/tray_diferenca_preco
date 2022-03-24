@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <title>Tray - Compara preços</title>
+
+    <style>
+        body{
+            font-family:arial, helvetica, sans-serif;
+            color: #44464C;
+        }
+        h1 { text-align:center;}
+        .campo{
+            margin-bottom: 5px;
+        }
+        .campo > label {
+            display: inline-block;
+            width: 150px;
+        }
+        .campo input, .campo select {
+            display: inline-block;
+            width: 150px;
+            padding: 3px;
+            box-sizing: border-box;
+        }
+
+        input, select{
+            margin-right: 3px;
+        }
+    </style>
+</head>
+<body>
+<h1>Tray - Compara preços</h1>
+<p>
+    Compara preço de dias diferentes
+    <br><br>
+</p>
+<hr>
+<br>
+
+<div class="coluna2">
+
+    <label style="display: block;">Mostrar diferenças a partir de (+/-)x%:</label>
+    <input type="text" id="diferenca_ok" value="1">
+    <br><br>
+
+    <label style="display: block;">Diferenças Atenção a partir de (+/-)x%:</label>
+    <input type="text" id="diferenca_atencao" value="10">
+    <br><br>
+
+    <label style="display: block;">Diferenças Grave a partir de (+/-)x%:</label>
+    <input type="text" id="diferenca_grave" value="20">
+    <br><br>
+
+    <label style="display: block;">* TRAY ANTIGO: Arquivo CSV (Id; Produto; Referência; Características de variações; Categoria; Marca)</label>
+    <input type="file" id="inputCSVTray1" multiple>
+    <br><br>
+    <label style="display: block;">* TRAY ATUAL: Arquivo CSV (Id; Produto; Referência; Características de variações; Categoria; Marca)</label>
+    <input type="file" id="inputCSVTray2" multiple>
+
+    <br><br><button id="btn-executar" type="button" onclick="pegaCSV2()">Executar</button>
+    <span id="msg-executar" style="display:none">Aguarde! Executando...</span>
+</div>
+
+</body>
+</html>
+
+<script src="script/jquery.min.js" type="text/javascript"></script>
+<script src="script/papaparse.min.js" type="text/javascript"></script>
+
+<script src="categorias.js" type="text/javascript"></script>
+<script src="marcas.js" type="text/javascript"></script>
+
+<script>
+    // Converte float em REAL mascarado (1234.56 => 1.234,56)
+    Number.prototype.mask = function(n = 2) {
+
+        numText = this.toString();
+        if (numText.indexOf(".") != -1) {
+            numText = numText.split('.', 2);
+            n = Math.max(Math.min(n, numText[1].length), 2);
+        } else {
+            n = 2;
+        }
+
+        x = 3;
+        s = '.';
+        c = ',';
+        var re = '\\d(?=(\\d{' + (x || 3) + '})+' + (n > 0 ? '\\D' : '$') + ')',
+            num = this.toFixed(Math.max(0, ~~n));
+        return (c ? num.replace('.', c) : num).replace(new RegExp(re, 'g'), '$&' + (s || ','));
+    };
+    // Converte REAL mascarado em FLoat ('1.234,56' => 1234.56)
+    String.prototype.unmask = function(){
+        num = this;
+        return (num == '' ? 0 : parseFloat((num).replace('.', '').replace('.', '').replace('.', '').replace('.', '').replace('.', '').replace(',', '.')));
+    };
+
+    function readmultifiles(file, arquivo) {
+        return new Promise(resolve => {
+
+            var name = file.name;
+            var reader = new FileReader();
+
+            if (name.slice(-3) != 'csv') {
+                alert('Arquivo não está em CSV (Delimitado por vírgulas)');
+            } else {
+
+                reader.onload = function(e) {
+
+                    var bin = e.target.result; //get file content
+
+                    bin = bin.trim();
+
+                    var arquivo_texto = Papa.parse(bin);
+                    arquivo_texto = arquivo_texto['data'];
+                    //arquivo_texto.splice(0, 1); // Remover primeira linha de cabeçalho
+
+                    if (arquivo == 1) { // Tray
+                        var etapa = 1;
+                        /*  1 - inicio arquivo (vazio)
+
+                            2 - inicio cabecalho 1 PAIS
+                            3 - inicio cabecalho 2 PAIS
+                            4 - inicio PAIS
+                            5 - fim PAIS (vazio)
+
+                            6 - inicio cabecalho 1 FILHOS
+                            7 - inicio cabecalho 2 FILHOS
+                            8 - inicio FILHOS
+                            9 - fim FILHOS (vazio)
+
+
+
+                        */
+                        for (var at = 0; at < arquivo_texto.length; at++) {
+
+                            switch(etapa) {
+                                case 1:
+                                    if (arquivo_texto[at][0] != '') {
+                                        etapa = 3;
+                                    }
+                                    break;
+                                case 3:
+                                    if (
+                                        arquivo_texto[at][0] != "ID" ||
+                                        arquivo_texto[at][1] != "PRODUTO" ||
+                                        arquivo_texto[at][2] != "CATEGORIA" ||
+                                        arquivo_texto[at][3] != "PRECO" ||
+                                        arquivo_texto[at][4] != "INICIO_OFERTA" ||
+                                        arquivo_texto[at][5] != "FIM_OFERTA" ||
+                                        arquivo_texto[at][6] != "PRECO_OFERTA" ||
+                                        arquivo_texto[at][7] != "MARCA" ||
+                                        arquivo_texto[at][8] != "REFERENCIA"
+                                    ) {
+                                        console.info('arquivo_texto[at]', arquivo_texto[at]);
+                                        alert('Arquivo Tray invalido '+name+' "TRAY: Arquivo CSV (ID; PRODUTO; CATEGORIA; PRECO; INICIO_OFERTA; FIM_OFERTA; PRECO_OFERTA; MARCA)"');
+                                        return false;
+                                    } else {
+                                        etapa = 4;
+                                    }
+                                    break;
+                                case 4:
+                                    if (arquivo_texto[at][0] == '') {
+                                        etapa = 5;
+                                    } else {
+                                        arquivoCSV_tray1.push(arquivo_texto[at].clone());
+                                    }
+                                    break;
+                                case 5:
+                                    if (arquivo_texto[at][0] != '') {
+                                        etapa = 7;
+                                    }
+                                    break;
+                                case 7:
+                                    etapa = 8;
+                                    break;
+                                case 8:
+                                    if (arquivo_texto[at][0] == '') {
+                                        etapa = 9;
+                                    } else {
+                                        arquivoCSV_tray_Filhos1.push(arquivo_texto[at].clone());
+                                    }
+                                    break;
+                                case 9:
+                                    break;
+
+                            }
+                        }
+                    } else if (arquivo == 2) { // Tray
+
+
+                        var etapa = 1;
+                        for (var at = 0; at < arquivo_texto.length; at++) {
+                            switch(etapa) {
+                                case 1:
+                                    if (arquivo_texto[at][0] != '') {
+                                        etapa = 3;
+                                    }
+                                    break;
+                                case 3:
+                                    if (
+                                        arquivo_texto[at][0] != "ID" ||
+                                        arquivo_texto[at][1] != "PRODUTO" ||
+                                        arquivo_texto[at][2] != "CATEGORIA" ||
+                                        arquivo_texto[at][3] != "PRECO" ||
+                                        arquivo_texto[at][4] != "INICIO_OFERTA" ||
+                                        arquivo_texto[at][5] != "FIM_OFERTA" ||
+                                        arquivo_texto[at][6] != "PRECO_OFERTA" ||
+                                        arquivo_texto[at][7] != "MARCA" ||
+                                        arquivo_texto[at][8] != "REFERENCIA"
+                                    ) {
+                                        console.info('arquivo_texto[at]', arquivo_texto[at]);
+                                        alert('Arquivo Tray invalido '+name+' "TRAY: Arquivo CSV (ID; PRODUTO; CATEGORIA; PRECO; INICIO_OFERTA; FIM_OFERTA; PRECO_OFERTA; MARCA)"');
+                                        return false;
+                                    } else {
+                                        etapa = 4;
+                                    }
+                                    break;
+                                case 4:
+                                    if (arquivo_texto[at][0] == '') {
+                                        etapa = 5;
+                                    } else {
+                                        arquivoCSV_tray2.push(arquivo_texto[at].clone());
+                                    }
+                                    break;
+                                case 5:
+                                    if (arquivo_texto[at][0] != '') {
+                                        etapa = 7;
+                                    }
+                                    break;
+                                case 7:
+                                    etapa = 8;
+                                    break;
+                                case 8:
+                                    if (arquivo_texto[at][0] == '') {
+                                        etapa = 9;
+                                    } else {
+                                        arquivoCSV_tray_Filhos2.push(arquivo_texto[at].clone());
+                                    }
+                                    break;
+                                case 9:
+                                    break;
+
+                            }
+                        }
+                    }
+
+                    resolve(true);
+                }
+            }
+            reader.readAsText(file);
+        })
+    }
+
+    var arquivoCSV_tray1 = [];
+    var arquivoCSV_tray_Filhos1 = [];
+    var arquivoCSV_tray2 = [];
+    var arquivoCSV_tray_Filhos2 = [];
+
+    var diferenca_ok = 0;
+    var diferenca_atencao = 0;
+    var diferenca_grave = 0;
+
+
+    async function pegaCSV2() {
+
+        diferenca_ok = $('#diferenca_ok').val();
+        diferenca_atencao = $('#diferenca_atencao').val();
+        diferenca_grave = $('#diferenca_grave').val();
+
+        console.info('diferenca_ok', diferenca_ok)
+        console.info('diferenca_atencao', diferenca_atencao)
+        console.info('diferenca_grave', diferenca_grave)
+
+        $('#btn-executar').hide();
+        $('#msg-executar').show();
+
+        if ($('#inputCSVTray1')[0].files.length != 0) {
+            var files = $('#inputCSVTray1')[0].files;
+            for (var i = 0; i < files.length; i++) {
+                await readmultifiles(files[i], 1);
+            }
+        }
+        if ($('#inputCSVTray2')[0].files.length != 0) {
+            var files = $('#inputCSVTray2')[0].files;
+            for (var i = 0; i < files.length; i++) {
+                await readmultifiles(files[i], 2);
+            }
+        }
+        console.info('executa()')
+
+        executa()
+    }
+
+    var erro_preco_pai_ok 			= '';
+    var erro_preco_pai_atencao 		= '';
+    var erro_preco_pai_grave 		= '';
+
+    var erro_oferta_pai_ok 			= '';
+    var erro_oferta_pai_atencao 	= '';
+    var erro_oferta_pai_grave 		= '';
+
+    var erro_preco_filho_ok			= '';
+    var erro_preco_filho_atencao 	= '';
+    var erro_preco_filho_grave 		= '';
+
+    var erro_oferta_filho_ok		= '';
+    var erro_oferta_filho_atencao 	= '';
+    var erro_oferta_filho_grave 	= '';
+
+    function executa() {
+
+        console.info('aaaaaaaaaaaaaaaaaa');
+
+        if (arquivoCSV_tray1.length == 0 || arquivoCSV_tray2.length == 0) {
+            alert('Faltando arquivo "TRAY: Arquivo CSV (Id; Produto; Referência; Características de variações; Categoria; Marca)"');
+            return false;
+        }
+
+        console.info('PAIS')
+
+        for (var i=1; i<arquivoCSV_tray1.length; i++) { // Linha por Linha
+            var fileLine1 = arquivoCSV_tray1[i];
+
+            var id  = fileLine1[0];
+            var ref = fileLine1[8];
+            var nome = fileLine1[1];
+
+            for (var t=1; t<arquivoCSV_tray2.length; t++) { // Linha por Linha dos produtos TRAY
+                var fileLine2 = arquivoCSV_tray2[t];
+
+                if (id == fileLine2[0]) {
+                    /*
+                        // arquivoCSV_tray[t][]
+                        0: "ID"
+                        1: "PRODUTO"
+                        2: "CATEGORIA"
+                        3: "PRECO"
+                        4: "INICIO_OFERTA"
+                        5: "FIM_OFERTA"
+                        6: "PRECO_OFERTA"
+                        7: "MARCA"
+                        8: "REFERENCIA"
+
+                    */
+                    // Se for mesma referência
+                    if (fileLine1[3] != fileLine2[3]) { // PRECO
+                        var p1 = fileLine1[3].unmask();
+                        var p2 = fileLine2[3].unmask();
+
+                        if (p1 != 0 && p2 != 0) {
+                            var dif = (p2/p1-1)*100;
+                            if (dif <= -diferenca_ok || dif >= diferenca_ok) {
+                                console.info('SKU [' + ref + '] PRECO diferente: ' + fileLine1[3] + ' para ' + fileLine2[3] + ' DIF: ' + dif.mask() + '%');
+
+                                if (dif <= -diferenca_grave || dif >= diferenca_grave) {
+                                    erro_preco_pai_grave += '<tr style="background: #f00; color:#fff"><td>PAI</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else if (dif <= -diferenca_atencao || dif >= diferenca_atencao) {
+                                    erro_preco_pai_atencao += '<tr style="background: #ffdada"><td>PAI</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else {
+                                    erro_preco_pai_ok += '<tr><td>PAI</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                }
+                            }
+                        }
+                    }
+                    if (fileLine1[6] != fileLine2[6]) { // PRECO OFERTA
+                        var p1 = fileLine1[6].unmask();
+                        var p2 = fileLine2[6].unmask();
+
+                        if (p1 != 0 && p2 != 0) {
+                            var dif = (p2/p1-1)*100;
+                            if (dif <= -diferenca_ok || dif >= diferenca_ok) {
+                                console.info('SKU [' + fileLine1[8] + '] P. OFERTA diferente: ' + fileLine1[6] + ' para ' + fileLine2[6] + ' DIF: ' + dif.mask() + '%')
+
+                                if (dif <= -diferenca_grave || dif >= diferenca_grave) {
+                                    erro_oferta_pai_grave += '<tr style="background: #f00; color: #fff;"><td>PAI</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else if (dif <= -diferenca_atencao || dif >= diferenca_atencao) {
+                                    erro_oferta_pai_atencao += '<tr style="background: #ffdada"><td>PAI</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else {
+                                    erro_oferta_pai_ok += '<tr><td>PAI</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                }
+
+                                //erro_oferta_pai += '<tr '+((dif <= -20 || dif >= 20) ? 'style="background: #ffdada"' : '')+'><td>PAI</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        console.info('] FIM PAIS')
+
+        console.info('FILHOS [')
+
+        for (var i=1; i<arquivoCSV_tray_Filhos1.length; i++) { // Linha por Linha
+            var fileLine1 = arquivoCSV_tray_Filhos1[i];
+
+            var id  = fileLine1[0];
+            var ref = fileLine1[2];
+            var nome = fileLine1[3];
+
+            for (var t=1; t<arquivoCSV_tray_Filhos2.length; t++) { // Linha por Linha dos produtos TRAY
+
+                var fileLine2 = arquivoCSV_tray_Filhos2[t];
+
+                if (id == fileLine2[0]) {
+
+                    if (id == '31333') {
+                        console.info('fileLine1', fileLine1)
+                        console.info('fileLine2', fileLine2)
+                    }
+                    /*
+                        // arquivoCSV_tray[t][]
+                        0: "ID"
+                        1: "ID PAI"
+                        2: "REFERENCIA"
+                        3: "NOME"
+
+                        8: "PRECO"
+                        11: "PRECO_OFERTA"
+                    */
+                    // Se for mesma referência
+                    if (fileLine1[8] != fileLine2[8]) { // PRECO
+
+
+                        var p1 = fileLine1[8].unmask();
+                        var p2 = fileLine2[8].unmask();
+
+                        if (p1 != 0 && p2 != 0) {
+                            var dif = (p2/p1-1)*100;
+                            if (dif <= -diferenca_ok || dif >= diferenca_ok) {
+                                console.info('SKU [' + ref + '] PRECO diferente: ' + fileLine1[8] + ' para ' + fileLine2[8] + ' DIF: ' + dif.mask() + '%');
+
+                                if (dif <= -diferenca_grave || dif >= diferenca_grave) {
+                                    erro_preco_filho_grave += '<tr style="background: #f00; color: #fff;"><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else if (dif <= -diferenca_atencao || dif >= diferenca_atencao) {
+                                    erro_preco_filho_atencao += '<tr style="background: #ffdada"><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else {
+                                    erro_preco_filho_ok += '<tr><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                }
+                                //erro_preco_filho_ok += '<tr '+((dif <= -20 || dif >= 20) ? 'style="background: #ffdada"' : '')+'><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+
+                            }
+                        }
+                    }
+                    if (fileLine1[11] != fileLine2[11]) { // PRECO OFERTA
+                        var p1 = fileLine1[11].unmask();
+                        var p2 = fileLine2[11].unmask();
+
+                        if (p1 != 0 && p2 != 0) {
+                            var dif = (p2/p1-1)*100;
+                            if (dif <= -diferenca_ok || dif >= diferenca_ok) {
+                                console.info('SKU [' + ref + '] P. OFERTA diferente: ' + fileLine1[11] + ' para ' + fileLine2[11] + ' DIF: ' + dif.mask() + '%')
+
+                                if (dif <= -diferenca_grave || dif >= diferenca_grave) {
+                                    erro_oferta_filho_grave += '<tr style="background: #f00; color: #fff;"><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else if (dif <= -diferenca_atencao || dif >= diferenca_atencao) {
+                                    erro_oferta_filho_atencao += '<tr style="background: #ffdada"><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                } else {
+                                    erro_oferta_filho_ok += '<tr><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                                }
+                                //erro_oferta_filho_ok += '<tr '+((dif <= -20 || dif >= 20) ? 'style="background: #ffdada"' : '')+'><td>FILHO</td> <td>' + id + '</td> <td>' + ref + '</td> <td>' + p1.mask() + '</td> <td>' + p2.mask() + '</td> <td>' + dif.mask() + '%</td> <td>'+nome+'</td></tr>';
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+
+
+            /*
+
+            var fileLine = arquivoCSV_tray_Filhos1[i];
+
+            for (var t=1; t<arquivoCSV_tray_Filhos2.length; t++) { // Linha por Linha dos produtos TRAY
+                var fileLine2 = arquivoCSV_tray_Filhos2[t];
+
+                if (fileLine[2] == fileLine2[2]) {
+                    /*
+                        // arquivoCSV_tray[t][]
+                        0: "ID"
+                        1: "ID PAI"
+                        2: "REFERENCIA"
+
+                        8: "PRECO"
+                        11: "PRECO_OFERTA"
+                    * /
+                    // Se for mesma referência
+                    if (fileLine[8] != fileLine2[8]) { // PRECO
+                        var p1 = fileLine1[8].unmask();
+                        var p2 = fileLine2[8].unmask();
+
+                        if (p1 != 0 && p2 != 0) {
+                            var dif = (p2/p1-1)*100;
+                            if (dif <= 20 || dif >= 20) {
+                                console.info('SKU [' + fileLine1[2] + '] PRECO diferente: ' + fileLine1[8] + ' para ' + fileLine2[8] + ' DIF: ' + dif.mask() + '%')
+                            }
+                        }
+                    }
+                    if (fileLine[11] != fileLine2[11]) { // PRECO OFERTA
+                        var p1 = fileLine1[11].unmask();
+                        var p2 = fileLine2[11].unmask();
+
+                        if (p1 != 0 && p2 != 0) {
+                            var dif = (p2/p1-1)*100;
+                            if (dif <= 20 || dif >= 20) {
+                                console.info('SKU [' + fileLine1[2] + '] P. OFERTA diferente: ' + fileLine1[11] + ' para ' + fileLine2[11] + ' DIF: ' + dif.mask() + '%')
+                            }
+                        }
+                    }
+                }
+            }
+            */
+        }
+        console.info('] FIM FILHOS')
+
+        exibirErros()
+
+    }
+
+    function exibirErros(){
+        if (erro_preco_pai_ok != '' || erro_preco_pai_atencao != '' || erro_preco_pai_grave != ''
+            || erro_oferta_pai_ok != '' || erro_oferta_pai_atencao != '' || erro_oferta_pai_grave != ''
+            || erro_preco_filho_ok != '' || erro_preco_filho_atencao != '' || erro_preco_filho_grave != ''
+            || erro_oferta_filho_ok != ''|| erro_oferta_filho_atencao != ''|| erro_oferta_filho_grave != ''
+        ) {
+            var html_erros = '';
+
+
+            if (erro_preco_pai_grave != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO GRAVE</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_preco_pai_grave;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_preco_pai_atencao != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO ATENCAO</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_preco_pai_atencao;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_preco_pai_ok != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OK</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_preco_pai_ok;
+                html_erros += '</table> <br><br>';
+            }
+
+
+            if (erro_oferta_pai_grave != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OFERTA GRAVE</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_oferta_pai_grave;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_oferta_pai_atencao != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OFERTA ATENCAO</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_oferta_pai_atencao;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_oferta_pai_ok != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OFERTA OK</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_oferta_pai_ok;
+                html_erros += '</table> <br><br>';
+            }
+
+
+            if (erro_preco_filho_grave != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO GRAVE</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_preco_filho_grave;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_preco_filho_atencao != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO ATENCAO</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_preco_filho_atencao;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_preco_filho_ok != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OK</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_preco_filho_ok;
+                html_erros += '</table> <br><br>';
+            }
+
+
+            if (erro_oferta_filho_grave != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OFERTA GRAVE</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_oferta_filho_grave;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_oferta_filho_atencao != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OFERTA ATENCAO</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_oferta_filho_atencao;
+                html_erros += '</table> <br><br>';
+            }
+            if (erro_oferta_filho_ok != ''){
+                html_erros += '<table width="100%" border="1" cellspacing="0" cellpadding="5">';
+                html_erros += '<tr><td colspan="7">PRODUTOS PAI COM DIFERENÇA NO PREÇO OFERTA OK</td></tr>';
+                html_erros += '<tr> <td>Tipo</td> <td>ID</td> <td>REFERENCIA</td> <td>PREÇO</td> <td>PREÇO OFERTA</td> <td>% DIF</td> <td>NOME</td></tr>';
+                html_erros += erro_oferta_filho_ok;
+                html_erros += '</table> <br><br>';
+            }
+
+
+            $('#msg-executar').html(html_erros);
+        } else {
+            $('#msg-executar').html('SEM DIFERENCA DE PRECO')
+        }
+    }
+
+    // Clonar array
+    Array.prototype.clone = function() {
+        return this.slice(0);
+    };
+
+    function removeCaracterEspecial (especialChar){
+        return especialChar.normalize("NFD").replace(/[^a-zA-Zs]/g, "");
+    }
+</script>
